@@ -1,0 +1,72 @@
+import cv2
+import time
+import datetime
+cam = cv2.VideoCapture(0)      # open camera
+
+detection = False
+detection_stopped_time = None
+timer_started = False
+SECONDS_TO_RECORD_AFTER_DETECTION = 5      # stops camera after 5 seconds
+
+frame_size = (int(cam.get(3)), int(cam.get(4)))     # frame size of camera
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")            # video forma
+
+while cam.isOpened():
+    ret, frame1 = cam.read()
+    ret, frame2 = cam.read()
+
+    diff = cv2.absdiff(frame1, frame2)     # Calculate absolute difference between consecutive frames
+
+    if diff is not None:
+        gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)      # Convert the difference image to grayscale to simplify processing
+        if gray is not None:
+            blur = cv2.GaussianBlur(gray, (5, 5), 0)        # Apply Gaussian blur to the grayscale image to reduce noise
+            _, thresh = cv2.threshold(blur, 20, 255, cv2.THRESH_BINARY)        # create a binary image where motion areas are white
+            dilated = cv2.dilate(thresh, None, iterations=3)               # fill in gaps and enhance the contours
+            contours, _ = cv2.findContours(dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+            # Start recording if significant movement is detected
+            if any(cv2.contourArea(c) > 5000 for c in contours):          # area greater than 5000 pixels (indicating significant motion)
+                if not detection:
+                    detection = True
+                    current_time = datetime.datetime.now().strftime("=Special_topic-%d-%m-%Y-%H-%M-%S")
+                    out = cv2.VideoWriter(f"{current_time}.mp4", fourcc, 20, frame_size)                        # video saving
+                    print("Started Recording!")
+
+            # Stop recording after a specified time period
+            elif detection:
+                if timer_started:
+                    if time.time() - detection_stopped_time >= SECONDS_TO_RECORD_AFTER_DETECTION:
+                        detection = False
+                        timer_started = False
+                        out.release()
+                        print('Stop Recording!')
+                else:
+                    timer_started = True
+                    detection_stopped_time = time.time()
+
+            # Write frames to video if recording is active
+            if detection:
+                out.write(frame1)
+
+            # Draw bounding rectangles around detected contours
+            for c in contours:
+                if cv2.contourArea(c) < 5000:
+                    continue                                          # bounding rectangles around significant contours
+                x, y, w, h = cv2.boundingRect(c)
+                cv2.rectangle(frame1, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # Display processed frame
+            cv2.imshow('Special_Topic', frame1)        # window named 'Special_Topic'
+
+            # Break the loop if 'q' is pressed
+            if cv2.waitKey(10) == ord('q'):       # stopping
+                break
+        else:
+            print("Error: Gray image is empty")           # error messages
+    else:
+        print("Error: Difference image is empty")
+# Release resources
+out.release()
+cam.release()
+cv2.destroyAllWindows()
